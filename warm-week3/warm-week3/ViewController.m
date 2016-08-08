@@ -7,60 +7,75 @@
 //
 
 #import "ViewController.h"
-#import <CommonCrypto/CommonDigest.h>
+
 
 @interface ViewController ()
+@property(nonatomic,strong)UIWebView *web;
 @property(nonatomic,strong)NSMutableString *htmlstring;
 @property(nonatomic,strong)NSString *sanboxpath;
 @property(nonatomic,strong)NSString *jsstring;
 @property(nonatomic,strong)NSString *imgstring;
 @property(nonatomic,strong)NSString *stylesheetstr;
-
-
+@property(nonatomic,strong)NSString *htmlpath;
 @end
 
 @implementation ViewController
 
-- (void)viewDidLoad {
+-(void)viewDidLoad {
     [super viewDidLoad];
+
     
-    UIWebView *web =[[UIWebView alloc] initWithFrame:self.view.bounds];
+     _web =[[UIWebView alloc] initWithFrame:self.view.bounds];
 //    NSString *urlstring = @"http://www.jianshu.com/";
     NSString *urlstring = @"http://www.jianshu.com/p/51cf2ac61906";
-    [web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:urlstring]]];
-    [self.view addSubview:web];
+
     _sanboxpath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+    NSLog(@"%@",_sanboxpath);
     _htmlstring = [NSMutableString stringWithContentsOfURL:[NSURL URLWithString:urlstring] encoding:NSUTF8StringEncoding error:nil];
+   
     NSInteger mm = [[NSUserDefaults standardUserDefaults] integerForKey:@"ETag"];
     
     if (mm == _htmlstring.length) {
        
         NSLog(@"网页没有发生改变");
+      
         
-        NSLog(@"ETag的值为：%lu",mm);
+       [self localhtml];
         
 
         
     }else{
         NSLog(@"网页发生改变");
         
+        [_web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:urlstring]]];
+        [self.view addSubview:_web];
+       
+         [self storescriptstring];
         
-        [self storescriptstring];
-        [self storesimages];
-        [self storesstylesheet];
-        [self storeHTMLstring];
+
         [[NSUserDefaults standardUserDefaults] setInteger:_htmlstring.length forKey:@"ETag"];
         
        
         NSLog(@"ETag的值为：%lu",mm);
         NSLog(@"%lu",_htmlstring.length);
 
+  }
 }
 
-  
+-(void)localhtml{
+    NSString *sanboxpath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
+    NSLog(@"%@",sanboxpath);
     
-
-}
+    NSString *sanpath = [sanboxpath stringByAppendingPathComponent:@"HTML"];
+    NSString *final = [sanpath stringByAppendingPathComponent:@"index.html"];
+    NSString *str = [NSString stringWithContentsOfFile:final encoding:NSUTF8StringEncoding error:nil];
+    
+    
+    [_web loadHTMLString:str baseURL:[NSURL URLWithString:final]];
+     _web.scalesPageToFit =YES;
+    [self.view addSubview:_web];
+    }
+    
 //本地保存HTML中的内容
 -(void)storeHTMLstring{
 
@@ -71,116 +86,82 @@
         [[NSFileManager defaultManager] createDirectoryAtPath:htmlpath withIntermediateDirectories:YES attributes:nil error:nil];
     }
     
-    NSString *finalpath = [htmlpath stringByAppendingPathComponent:@"index.html"];
-    [_htmlstring writeToFile:finalpath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    _htmlpath = [htmlpath stringByAppendingPathComponent:@"index.html"];
+    [_htmlstring writeToFile:_htmlpath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     
 }
-//md5方法
-- (NSString *)md5:(NSString *)sourceContent {
-    if (self == nil || [sourceContent length] == 0) {
-        return nil;
-    }
-    
-    unsigned char digest[CC_MD5_DIGEST_LENGTH], i;
-    CC_MD5([sourceContent UTF8String], (int)[sourceContent lengthOfBytesUsingEncoding:NSUTF8StringEncoding], digest);
-    NSMutableString *ms = [NSMutableString string];
-    
-    for (i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
-        [ms appendFormat:@"%02x", (int)(digest[i])];
-    }
-    
-    return [ms copy];
-}
+
 
 //本地保存script
 -(void)storescriptstring{
     
-    NSString *htmlpath = [_sanboxpath stringByAppendingPathComponent:@"/HTML/assets/javascripts.txt"];
-    //        NSLog(@"%@",htmlpath);
-    if (![[NSFileManager defaultManager] fileExistsAtPath:htmlpath]) {
-        
-        [[NSFileManager defaultManager] createFileAtPath:htmlpath contents:nil attributes:nil];
-    }
 
+    NSMutableString *tempStr = _htmlstring.mutableCopy;
+    
     NSRegularExpression *regex1 = [NSRegularExpression regularExpressionWithPattern:@"<script[^>]*?>[\\s\\S]*?</script>" options:NSRegularExpressionAllowCommentsAndWhitespace error:nil];
     //@"<script[^>]*?>[\\s\\S]*?</script>"   @"<img.*src=(.*?)[^>]*?>"  /HTML/index.html   /HTML/assets/javascripts/
     
-    NSArray *resultscript = [regex1 matchesInString:_htmlstring options:NSMatchingReportCompletion range:NSMakeRange(0, _htmlstring.length)];
+    NSArray *resultscript = [regex1 matchesInString:tempStr options:NSMatchingReportCompletion range:NSMakeRange(0, tempStr.length)];
     
- NSLog(@"%lu",resultscript.count);
-    
-    NSMutableDictionary *dic = [[NSMutableDictionary alloc]init];
 
-    
-    NSMutableString *tempStr = _htmlstring.mutableCopy;
-    
     for (NSTextCheckingResult *result in resultscript) {
         
-        _jsstring = [_htmlstring substringWithRange:result.range];
+        _jsstring = [tempStr substringWithRange:result.range];
     
-        NSLog(@"%@",_jsstring);
+       // NSLog(@"%@",_jsstring);
         NSArray *ary= nil;
         if ([_jsstring rangeOfString:@"src=\""].location!= NSNotFound) {
             
             ary = [_jsstring componentsSeparatedByString:@"src=\""];
             
             
-        } else if ([_jsstring rangeOfString:@"src="].location!= NSNotFound) {
-            
-            ary  = [_jsstring componentsSeparatedByString:@"src="];
         }
         
         
-        
-        NSString *imagestr = nil;
+        //
+        NSString *jspath = [_sanboxpath stringByAppendingPathComponent:@"demo.js"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:jspath]) {
+            [[NSFileManager defaultManager] createFileAtPath:jspath contents:nil attributes:nil];
+        }
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:jspath];
+        //
+        NSString *jsstr = nil;
         
         if (ary.count >= 2) {
             
-           imagestr = ary[1];
+           jsstr = ary[1];
             
-            NSUInteger num = [imagestr rangeOfString:@"\""].location;
+            NSUInteger num = [jsstr rangeOfString:@"\""].location;
             
             
             if (num != NSNotFound) {
                 
-                imagestr = [imagestr substringToIndex:num];
+                jsstr = [jsstr substringToIndex:num];
             
-            
-                
-                NSLog(@"%@",imagestr);
-                
-                NSString *key = [self md5:imagestr];
-                
-                NSString *value = imagestr;
-                
-                NSRange rang = [tempStr rangeOfString:imagestr];
+              //  NSLog(@"%@",jsstr);
+
+
+               NSString *jshtml = [NSString stringWithContentsOfURL:[NSURL URLWithString:jsstr] encoding:NSUTF8StringEncoding error:nil];
+               NSData *stringData  = [jshtml dataUsingEncoding:NSUTF8StringEncoding];
+               [fileHandle writeData:stringData]; //追加写入数据
+                [fileHandle seekToEndOfFile];  //将节点跳到文件的末尾
                 
                 
-                [tempStr replaceCharactersInRange:rang withString:key];
-    
-                [dic setObject:value forKey:key];
+
+          _htmlstring =  [_htmlstring stringByReplacingOccurrencesOfString:jsstr withString:jspath];
+               
+                
+
             }
             
  
         }
         
+        
 
     }
-    
-    //写文件
-   NSLog(@"%d",[dic writeToFile:htmlpath atomically:YES]) ;
-    
-    NSDictionary *dic2 =[NSDictionary dictionaryWithContentsOfFile:htmlpath];
-    
-    
+    [self storesstylesheet];
 
-
-    for (NSString *key in dic2.allKeys) {
-        
-        
-        [tempStr stringByReplacingOccurrencesOfString:[dic2 objectForKey:key] withString:key];
-    }
-    
 }
 
 //本地保存img
@@ -188,12 +169,12 @@
 
 -(void)storesimages{
     
-    NSString *imagepath = [_sanboxpath stringByAppendingPathComponent:@"/HTML/assets/images.txt"];
-    //        NSLog(@"%@",htmlpath);
-    if (![[NSFileManager defaultManager] fileExistsAtPath:imagepath]) {
-        
-        [[NSFileManager defaultManager] createFileAtPath:imagepath contents:nil attributes:nil];
-    }
+//    NSString *imagepath = [_sanboxpath stringByAppendingPathComponent:@"/HTML/assets/images.txt"];
+//    //        NSLog(@"%@",htmlpath);
+//    if (![[NSFileManager defaultManager] fileExistsAtPath:imagepath]) {
+//        
+//        [[NSFileManager defaultManager] createFileAtPath:imagepath contents:nil attributes:nil];
+//    }
     
     NSRegularExpression *regex1 = [NSRegularExpression regularExpressionWithPattern:@"<img.*src=(.*?)[^>]*?>" options:NSRegularExpressionAllowCommentsAndWhitespace error:nil];
     //@"<script[^>]*?>[\\s\\S]*?</script>"   @"<img.*src=(.*?)[^>]*?>"  /HTML/index.html   /HTML/assets/javascripts/
@@ -213,6 +194,15 @@
         } else if ([_imgstring rangeOfString:@"src="].location!= NSNotFound) {
              ary  = [_imgstring componentsSeparatedByString:@"src="];
         }
+        //
+        
+        NSString *jspath = [_sanboxpath stringByAppendingPathComponent:@"img.txt"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:jspath]) {
+            [[NSFileManager defaultManager] createFileAtPath:jspath contents:nil attributes:nil];
+        }
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:jspath];
+        
+        //
         
         if (ary.count >= 2) {
             NSString *imagestr = ary[1];
@@ -222,23 +212,30 @@
                 imagestr = [imagestr substringToIndex:num];
                
                 
-                NSLog(@"%@",imagestr);
+             //   NSLog(@"%@",imagestr);
                 
-                NSString *key = [self md5:imagestr];
-                
-                NSString *value = imagestr;
-                
-                NSRange rang = [tempStr rangeOfString:imagestr];
+                NSString *jshtml = [NSString stringWithContentsOfURL:[NSURL URLWithString:imagestr] encoding:NSUTF8StringEncoding error:nil];
                 
                 
-                [tempStr replaceCharactersInRange:rang withString:key];
+                [fileHandle seekToEndOfFile];  //将节点跳到文件的末尾
                 
-                [dic setObject:value forKey:key];
+                
+                NSData* stringData  = [jshtml dataUsingEncoding:NSUTF8StringEncoding];
+                
+                [fileHandle writeData:stringData]; //追加写入数据
+                
+                
+                
+                _htmlstring = [_htmlstring stringByReplacingOccurrencesOfString:imagestr withString:jspath];
+                
+                
+                
             }
         }
-
+        
+        [fileHandle closeFile];
+        
     }
-
 }
 
 
@@ -257,50 +254,63 @@
     NSRegularExpression *regex1 = [NSRegularExpression regularExpressionWithPattern:@"<link\\s*rel=\"stylesheet\"[^>]*/>" options:NSRegularExpressionAllowCommentsAndWhitespace error:nil];
     //@"<script[^>]*?>[\\s\\S]*?</script>"   @"<img.*src=(.*?)[^>]*?>"  /HTML/index.html   /HTML/assets/javascripts/
     
-    NSArray *resultscript = [regex1 matchesInString:_htmlstring options:NSMatchingReportCompletion range:NSMakeRange(0, _htmlstring.length)];
-    NSLog(@"%lu",resultscript.count);
-    
-    NSMutableDictionary *dic = [[NSMutableDictionary alloc]init];
-    NSMutableString *tempStr = _htmlstring.mutableCopy;
-    
-    for (NSTextCheckingResult *result in resultscript) {
-        _stylesheetstr = [_htmlstring substringWithRange:result.range];
+    NSMutableArray *ary = nil;
+
+    NSString *htmlcopy = _htmlstring.mutableCopy;
+    NSArray *result1 = [regex1 matchesInString:htmlcopy options:NSMatchingReportCompletion range:NSMakeRange(0, htmlcopy.length)];
+    NSMutableDictionary *urlDicts2 = [[NSMutableDictionary alloc] init];
+    for (NSTextCheckingResult *item in result1) {
+        NSString *imgHtml = [htmlcopy substringWithRange:[item rangeAtIndex:0]];
+        // NSLog(@"%@",imgHtml);
+        NSArray *tmpArray = nil;
         
-        //      NSLog(@"%@",_imgstring);
-        NSArray *ary=nil;
-        if ([_stylesheetstr rangeOfString:@"src=\""].location!= NSNotFound) {
-            ary = [_stylesheetstr componentsSeparatedByString:@"src=\""];
-        } else if ([_stylesheetstr rangeOfString:@"src="].location!= NSNotFound) {
-            ary  = [_stylesheetstr componentsSeparatedByString:@"src="];
+        //
+        NSString *jspath = [_sanboxpath stringByAppendingPathComponent:@"demo1.css"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:jspath]) {
+            [[NSFileManager defaultManager] createFileAtPath:jspath contents:nil attributes:nil];
+        }
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:jspath];
+        //
+        
+       if ([imgHtml rangeOfString:@"href=\""].location != NSNotFound) {
+            tmpArray = [imgHtml componentsSeparatedByString:@"href=\""];
         }
         
-        if (ary.count >= 2) {
-            NSString *imagestr = ary[1];
+        if (tmpArray.count >= 2) {
+            NSString *src = tmpArray[1];
             
-            NSUInteger num = [imagestr rangeOfString:@"\""].location;
-            if (num != NSNotFound) {
-                imagestr = [imagestr substringToIndex:num];
-                NSLog(@"%@",imagestr);
+            NSUInteger loc = [src rangeOfString:@"\""].location;
+            if (loc != NSNotFound) {
+                src = [src substringToIndex:loc];
+            //    NSLog(@"stylesheet字符串为：%@",src);
                 
-                NSString *key = [self md5:imagestr];
-                
-                NSString *value = imagestr;
-                
-                NSRange rang = [tempStr rangeOfString:imagestr];
+                NSString *jshtml = [NSString stringWithContentsOfURL:[NSURL URLWithString:src] encoding:NSUTF8StringEncoding error:nil];
+
                 
                 
-                [tempStr replaceCharactersInRange:rang withString:key];
-                
-                [dic setObject:value forKey:key];
                 
                 
+                NSData* stringData  = [jshtml dataUsingEncoding:NSUTF8StringEncoding];
+                
+                [fileHandle writeData:stringData]; //追加写入数据
+                
+                [fileHandle seekToEndOfFile];  //将节点跳到文件的末尾
+                
+
+
+             _htmlstring = [_htmlstring stringByReplacingOccurrencesOfString:src withString:jspath];
+                
+
+      
             }
         }
+        
+        [fileHandle closeFile];
+        
+        }
+    [self storeHTMLstring];
 
-    }
-    
 }
-
 
 
 
